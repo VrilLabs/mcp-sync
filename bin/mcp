@@ -1,0 +1,323 @@
+#!/usr/bin/env python3
+"""
+mcp — CLI helper for mcp-sync
+Manages the canonical ~/.config/mcp-servers.json and syncs to all targets.
+"""
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import textwrap
+from datetime import datetime
+from pathlib import Path
+
+# ── Paths ──────────────────────────────────────────────────────────────────────
+HOME            = Path.home()
+CANON           = HOME / ".config/mcp-servers.json"
+WINDSURF_SRC    = HOME / ".codeium/windsurf/mcp_config.json"
+VSCODE_SRC      = HOME / "Library/Application Support/Code/User/mcp.json"
+OPENCODE_OUT    = HOME / ".config/opencode/opencode.json"
+SYNC_SCRIPT     = HOME / ".config/mcp-sync/scripts/sync-mcp.sh"
+LOG_FILE        = HOME / ".config/mcp-sync/sync.log"
+ERR_FILE        = HOME / ".config/mcp-sync/sync.err"
+PLIST_LABEL     = "com.user.mcp-sync"
+PLIST_PATH      = HOME / f"Library/LaunchAgents/{PLIST_LABEL}.plist"
+
+# ── Colors ─────────────────────────────────────────────────────────────────────
+GREEN  = "\033[0;32m"
+RED    = "\033[0;31m"
+YELLOW = "\033[1;33m"
+CYAN   = "\033[0;36m"
+BOLD   = "\033[1m"
+DIM    = "\033[2m"
+NC     = "\033[0m"
+
+def ok(msg):   print(f"{GREEN}✓{NC} {msg}")
+def err(msg):  print(f"{RED}✗{NC} {msg}")
+def warn(msg): print(f"{YELLOW}⚠{NC} {msg}")
+def info(msg): print(f"{CYAN}→{NC} {msg}")
+def dim(msg):  print(f"{DIM}{msg}{NC}")
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+def load_canon() -> dict:
+    if not CANON.exists():
+        err(f"Canonical file not found: {CANON}")
+        err("Run: mcp sync")
+        sys.exit(1)
+    with open(CANON) as f:
+        return json.load(f)
+
+def run_sync():
+    if not SYNC_SCRIPT.exists():
+        err(f"Sync script not found: {SYNC_SCRIPT}")
+        err("Re-run install.sh")
+        sys.exit(1)
+    result = subprocess.run([str(SYNC_SCRIPT)], capture_output=True, text=True)
+    print(result.stdout.strip())
+    if result.returncode != 0:
+        err(result.stderr.strip())
+        sys.exit(result.returncode)
+
+def agent_status() -> str:
+    result = subprocess.run(
+        ["launchctl", "list", PLIST_LABEL],
+        capture_output=True, text=True
+    )
+    if result.returncode == 0:
+        # Extract PID from output
+        for line in result.stdout.splitlines():
+            if line.strip().startswith('"PID"'):
+                pid = line.split("=")[1].strip().rstrip(";")
+                return f"running (PID {pid})"
+        return "loaded (idle)"
+    return "not loaded"
+
+def fswatch_running() -> bool:
+    result = subprocess.run(["pgrep", "-f", "fswatch.*mcp_config"], capture_output=True)
+    return result.returncode == 0
+
+# ── Commands ───────────────────────────────────────────────────────────────────
+def cmd_list(args):
+    """List all MCP servers from the canonical config."""
+    data = load_canon()
+    if not data:
+        warn("No servers found in canonical config.")
+        return
+    print(f"\n{BOLD}MCP Servers{NC} ({CANON})\n")
+    for name, cfg in sorted(data.items()):
+        cmd   = cfg.get("command", "")
+        a     = cfg.get("args", [])
+        env   = cfg.get("env", {})
+        label = f"{GREEN}{name}{NC}"
+        print(f"  {label}")
+        if cmd:
+            print(f"    {DIM}command:{NC} {cmd} {' '.join(str(x) for x in a)}")
+        if env:
+            for k, v in env.items():
+                masked = "****" if any(s in k.upper() for s in ("KEY","TOKEN","SECRET","PASS","AUTH")) else v
+                print(f"    {DIM}env:{NC}     {k}={masked}")
+        print()
+
+def cmd_status(args):
+    """Check sync status — agent, fswatch, file freshness, targets."""
+    print(f"\n{BOLD}mcp-sync status{NC}\n")
+
+    # Agent
+    status = agent_status()
+    running = "running" in status
+    symbol = ok if running else warn
+    (ok if running else warn)(f"launchd agent:  {status}")
+
+    # fswatch process
+    fw = fswatch_running()
+    (ok if fw else warn)(f"fswatch:        {'active' if fw else 'not detected (agent may be idle)'}")
+
+    # Canonical file
+    if CANON.exists():
+        mtime = datetime.fromtimestamp(CANON.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        count = len(load_canon())
+        ok(f"canonical:      {CANON}  [{count} server(s), updated {mtime}]")
+    else:
+        err(f"canonical:      not found ({CANON})")
+
+    # Sources
+    print()
+    info("Sources:")
+    for label, path in [("Windsurf", WINDSURF_SRC), ("VSCode", VSCODE_SRC)]:
+        if path.exists():
+            mtime = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+            ok(f"  {label:<10} {path}  [updated {mtime}]")
+        else:
+            dim(f"  {label:<10} not found — {path}")
+
+    # Targets
+    print()
+    info("Sync targets:")
+    for label, path in [("OpenCode", OPENCODE_OUT)]:
+        if path.exists():
+            mtime = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+            ok(f"  {label:<10} {path}  [updated {mtime}]")
+        else:
+            warn(f"  {label:<10} not found — run: mcp sync")
+
+    # Log tail
+    if LOG_FILE.exists():
+        lines = LOG_FILE.read_text().splitlines()
+        recent = lines[-5:] if len(lines) >= 5 else lines
+        if recent:
+            print(f"\n{BOLD}Recent log:{NC}")
+            for line in recent:
+                dim(f"  {line}")
+    print()
+
+def cmd_sync(args):
+    """Manually trigger a sync from the best available source."""
+    info("Triggering sync...")
+    run_sync()
+
+def cmd_diff(args):
+    """Show diff between canonical and each target."""
+    if not shutil.which("diff"):
+        err("diff not available")
+        sys.exit(1)
+    canon_data = load_canon()
+    for label, path, key in [
+        ("OpenCode", OPENCODE_OUT, "mcp"),
+    ]:
+        if not path.exists():
+            warn(f"{label}: target not found ({path})")
+            continue
+        with open(path) as f:
+            target_data = json.load(f).get(key, {})
+        if canon_data == target_data:
+            ok(f"{label}: in sync")
+        else:
+            warn(f"{label}: differs from canonical")
+            canon_keys  = set(canon_data.keys())
+            target_keys = set(target_data.keys())
+            for k in sorted(canon_keys - target_keys):
+                print(f"  {RED}+ {k}{NC} (in canonical, missing from target)")
+            for k in sorted(target_keys - canon_keys):
+                print(f"  {YELLOW}- {k}{NC} (in target, missing from canonical)")
+
+def cmd_logs(args):
+    """Tail the sync log."""
+    if not LOG_FILE.exists():
+        warn("No log file yet.")
+        return
+    n = args.lines if hasattr(args, "lines") else 20
+    lines = LOG_FILE.read_text().splitlines()
+    for line in lines[-n:]:
+        print(line)
+
+def cmd_agent(args):
+    """Control the launchd agent (start/stop/restart/reload)."""
+    action = args.action
+    if action in ("stop", "restart", "reload"):
+        subprocess.run(["launchctl", "unload", str(PLIST_PATH)], check=False)
+        ok("Agent unloaded")
+    if action in ("start", "restart", "reload"):
+        subprocess.run(["launchctl", "load", str(PLIST_PATH)], check=True)
+        ok("Agent loaded")
+    if action == "status":
+        s = agent_status()
+        print(f"Agent status: {s}")
+
+def cmd_add(args):
+    """Add a server entry to the canonical config."""
+    data = load_canon() if CANON.exists() else {}
+    name = args.name
+    if name in data and not args.force:
+        err(f"Server '{name}' already exists. Use --force to overwrite.")
+        sys.exit(1)
+    entry = {"command": args.command}
+    if args.args:
+        entry["args"] = args.args
+    if args.env:
+        entry["env"] = dict(pair.split("=", 1) for pair in args.env)
+    data[name] = entry
+    CANON.parent.mkdir(parents=True, exist_ok=True)
+    with open(CANON, "w") as f:
+        json.dump(data, f, indent=2)
+    ok(f"Added '{name}' → {CANON}")
+    info("Syncing targets...")
+    run_sync()
+
+def cmd_remove(args):
+    """Remove a server from the canonical config."""
+    data = load_canon()
+    if args.name not in data:
+        err(f"Server '{args.name}' not found.")
+        sys.exit(1)
+    del data[args.name]
+    with open(CANON, "w") as f:
+        json.dump(data, f, indent=2)
+    ok(f"Removed '{args.name}'")
+    run_sync()
+
+def cmd_paths(args):
+    """Print all relevant file paths."""
+    print(f"\n{BOLD}mcp-sync paths{NC}\n")
+    paths = [
+        ("canonical",       CANON),
+        ("windsurf src",    WINDSURF_SRC),
+        ("vscode src",      VSCODE_SRC),
+        ("opencode out",    OPENCODE_OUT),
+        ("sync script",     SYNC_SCRIPT),
+        ("log",             LOG_FILE),
+        ("launchd plist",   PLIST_PATH),
+    ]
+    for label, p in paths:
+        exists = Path(p).exists()
+        sym = f"{GREEN}●{NC}" if exists else f"{DIM}○{NC}"
+        print(f"  {sym} {label:<16} {p}")
+    print()
+
+# ── Main ───────────────────────────────────────────────────────────────────────
+def main():
+    parser = argparse.ArgumentParser(
+        prog="mcp",
+        description="mcp-sync CLI — manage and monitor your MCP server configs",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent("""\
+        examples:
+          mcp list                        # list all MCP servers
+          mcp status                      # full sync status
+          mcp sync                        # manual sync now
+          mcp diff                        # compare canonical vs targets
+          mcp logs                        # show last 20 log lines
+          mcp logs --lines 50             # show last 50 log lines
+          mcp agent restart               # restart launchd agent
+          mcp add my-server npx -- -y @my/server --port 3000
+          mcp remove my-server
+          mcp paths                       # show all config file paths
+        """)
+    )
+    sub = parser.add_subparsers(dest="command")
+
+    sub.add_parser("list",   help="List all MCP servers from canonical config")
+    sub.add_parser("status", help="Show sync status (agent, fswatch, files)")
+    sub.add_parser("sync",   help="Manually trigger a sync now")
+    sub.add_parser("diff",   help="Diff canonical config vs sync targets")
+    sub.add_parser("paths",  help="Print all relevant file paths")
+
+    p_logs = sub.add_parser("logs", help="Tail the sync log")
+    p_logs.add_argument("--lines", "-n", type=int, default=20, help="Number of lines (default: 20)")
+
+    p_agent = sub.add_parser("agent", help="Control the launchd background agent")
+    p_agent.add_argument("action", choices=["start","stop","restart","reload","status"])
+
+    p_add = sub.add_parser("add", help="Add a server to canonical config and sync")
+    p_add.add_argument("name",    help="Server name (key in mcpServers)")
+    p_add.add_argument("command", help="Command to run (e.g. npx, node, python3)")
+    p_add.add_argument("args", nargs="*", help="Arguments to pass to command")
+    p_add.add_argument("--env", "-e", nargs="*", default=[], metavar="K=V", help="Env vars (KEY=VALUE)")
+    p_add.add_argument("--force", action="store_true", help="Overwrite existing entry")
+
+    p_rm = sub.add_parser("remove", help="Remove a server from canonical config and sync")
+    p_rm.add_argument("name", help="Server name to remove")
+
+    args = parser.parse_args()
+
+    dispatch = {
+        "list":   cmd_list,
+        "status": cmd_status,
+        "sync":   cmd_sync,
+        "diff":   cmd_diff,
+        "logs":   cmd_logs,
+        "agent":  cmd_agent,
+        "add":    cmd_add,
+        "remove": cmd_remove,
+        "paths":  cmd_paths,
+    }
+
+    if args.command in dispatch:
+        dispatch[args.command](args)
+    else:
+        parser.print_help()
+
+if __name__ == "__main__":
+    main()

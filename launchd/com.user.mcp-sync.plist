@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template — install.sh generates the real version with expanded $HOME paths -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.user.mcp-sync</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>/opt/homebrew/bin/fswatch -o "$HOME/.codeium/windsurf/mcp_config.json" "$HOME/Library/Application Support/Code/User/mcp.json" 2>/dev/null | xargs -n1 -I{} $HOME/.config/mcp-sync/scripts/sync-mcp.sh</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>~/.config/mcp-sync/sync.log</string>
+  <key>StandardErrorPath</key>
+  <string>~/.config/mcp-sync/sync.err</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>

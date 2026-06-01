@@ -1,0 +1,235 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 280" width="900" height="280">
+  <defs>
+    <style>
+      @keyframes s1 { 0%,100%{stop-color:#07011a} 50%{stop-color:#0b0730} }
+      @keyframes s2 { 0%,100%{stop-color:#1a0545} 33%{stop-color:#0d1660} 66%{stop-color:#1a0545} }
+      @keyframes s3 { 0%,100%{stop-color:#060d2a} 50%{stop-color:#0a0218} }
+      @keyframes a1  { 0%,100%{opacity:.38} 50%{opacity:.65} }
+      @keyframes a2  { 0%,100%{opacity:.22} 50%{opacity:.46} }
+      @keyframes a3  { 0%,100%{opacity:.12} 50%{opacity:.26} }
+      @keyframes shimmer { 0%,100%{opacity:.88} 50%{opacity:1} }
+      .gs1{animation:s1 14s ease-in-out infinite}
+      .gs2{animation:s2 14s ease-in-out infinite}
+      .gs3{animation:s3 14s ease-in-out infinite}
+      .ga1{animation:a1  7s ease-in-out infinite}
+      .ga2{animation:a2  9s ease-in-out infinite 1s}
+      .ga3{animation:a3  11s ease-in-out infinite 2s}
+      .title{animation:shimmer 5s ease-in-out infinite}
+    </style>
+
+    <!-- Animated background gradient -->
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#07011a" class="gs1"/>
+      <stop offset="45%"  stop-color="#1a0545" class="gs2"/>
+      <stop offset="100%" stop-color="#060d2a" class="gs3"/>
+    </linearGradient>
+
+    <!-- Aurora overlay gradients -->
+    <radialGradient id="gp" cx="22%" cy="42%" r="52%">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity=".45"/>
+      <stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="gb" cx="78%" cy="60%" r="50%">
+      <stop offset="0%" stop-color="#2563eb" stop-opacity=".32"/>
+      <stop offset="100%" stop-color="#2563eb" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="gc" cx="50%" cy="12%" r="42%">
+      <stop offset="0%" stop-color="#06b6d4" stop-opacity=".18"/>
+      <stop offset="100%" stop-color="#06b6d4" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Subtle dot grid texture -->
+    <pattern id="dots" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="12" cy="12" r=".7" fill="#a78bfa" opacity=".14"/>
+    </pattern>
+
+    <!-- Title glow filter (purple halo) -->
+    <filter id="tglow" x="-12%" y="-35%" width="124%" height="170%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feColorMatrix in="blur" type="matrix"
+        values="0 0 0 0 0.55  0 0 0 0 0.1  0 0 0 0 0.95  0 0 0 1 0"
+        result="tinted"/>
+      <feMerge>
+        <feMergeNode in="tinted"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Subtle text glow for subtitle -->
+    <filter id="sglow" x="-8%" y="-40%" width="116%" height="180%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+
+    <!-- Badge background gradients -->
+    <linearGradient id="bos" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e3c62" stop-opacity=".92"/>
+      <stop offset="100%" stop-color="#0e2340" stop-opacity=".92"/>
+    </linearGradient>
+    <linearGradient id="bfeat" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3c1f70" stop-opacity=".92"/>
+      <stop offset="100%" stop-color="#1d0e48" stop-opacity=".92"/>
+    </linearGradient>
+    <linearGradient id="bide" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#064d3c" stop-opacity=".92"/>
+      <stop offset="100%" stop-color="#042e21" stop-opacity=".92"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ── Background layers ── -->
+  <rect width="900" height="280" rx="14" fill="url(#bg)"/>
+  <rect width="900" height="280" rx="14" fill="url(#dots)"/>
+  <rect width="900" height="280" rx="14" fill="url(#gp)" class="ga1"/>
+  <rect width="900" height="280" rx="14" fill="url(#gb)" class="ga2"/>
+  <rect width="900" height="280" rx="14" fill="url(#gc)" class="ga3"/>
+
+  <!-- Border -->
+  <rect width="900" height="280" rx="14" fill="none"
+        stroke="#8b5cf6" stroke-opacity=".28" stroke-width="1.5"/>
+  <!-- Inner highlight border -->
+  <rect x="1" y="1" width="898" height="278" rx="13" fill="none"
+        stroke="white" stroke-opacity=".04" stroke-width="1"/>
+
+  <!-- ── Title ── -->
+  <text x="450" y="80"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+    font-size="58" font-weight="700" letter-spacing="-1"
+    fill="white" text-anchor="middle"
+    filter="url(#tglow)" class="title">MCP Sync</text>
+
+  <!-- ── Subtitle ── -->
+  <text x="450" y="106"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+    font-size="11.5" font-weight="400" letter-spacing="5.5"
+    fill="#a78bfa" text-anchor="middle"
+    filter="url(#sglow)">BY VRIL LABS</text>
+
+  <!-- Separator line -->
+  <line x1="180" y1="123" x2="720" y2="123"
+        stroke="url(#gp)" stroke-opacity=".35" stroke-width=".75"/>
+
+  <!-- ══════════════════════════════════════════════
+       ROW 1 — Platform  (y_top=134, height=24)
+       macOS=72 · Apple Silicon=108 · Intel x64=86
+       total=282  start=(900-282)/2=309
+       ══════════════════════════════════════════════ -->
+
+  <!-- macOS -->
+  <rect x="309" y="134" width="72" height="24" rx="12"
+        fill="url(#bos)" stroke="#3b82f6" stroke-opacity=".45" stroke-width=".75"/>
+  <text x="345" y="150.5"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+    font-size="11" fill="#93c5fd" text-anchor="middle">macOS</text>
+
+  <!-- Apple Silicon -->
+  <rect x="389" y="134" width="108" height="24" rx="12"
+        fill="url(#bos)" stroke="#3b82f6" stroke-opacity=".45" stroke-width=".75"/>
+  <text x="443" y="150.5"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+    font-size="11" fill="#93c5fd" text-anchor="middle">Apple Silicon</text>
+
+  <!-- Intel x64 -->
+  <rect x="505" y="134" width="86" height="24" rx="12"
+        fill="url(#bos)" stroke="#3b82f6" stroke-opacity=".45" stroke-width=".75"/>
+  <text x="548" y="150.5"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+    font-size="11" fill="#93c5fd" text-anchor="middle">Intel x64</text>
+
+  <!-- ══════════════════════════════════════════════
+       ROW 2 — Features  (y_top=168)
+       Zero-Poll=88 · FSEvents API=108 · launchd=78
+       Atomic Sync=102 · mcp CLI=76
+       total=460  start=(900-460)/2=220
+       ══════════════════════════════════════════════ -->
+
+  <!-- Zero-Poll -->
+  <rect x="220" y="168" width="88" height="24" rx="12"
+        fill="url(#bfeat)" stroke="#8b5cf6" stroke-opacity=".45" stroke-width=".75"/>
+  <text x="264" y="184.5"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+    font-size="11" fill="#c4b5fd" text-anchor="middle">Zero-Poll</text>
+
+  <!-- FSEvents API -->
+  <rect x="316" y="168" width="108" height="24" rx="12"
+        fill="url(#bfeat)" stroke="#8b5cf6" stroke-opacity=".45" stroke-width=".75"/>
+  <text x="370" y="184.5"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+    font-size="11" fill="#c4b5fd" text-anchor="middle">FSEvents API</text>
+
+  <!-- launchd -->
+  <rect x="432" y="168" width="78" height="24" rx="12"
+        fill="url(#bfeat)" stroke="#8b5cf6" stroke-opacity=".45" stroke-width=".75"/>
+  <text x="471" y="184.5"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+    font-size="11" fill="#c4b5fd" text-anchor="middle">launchd</text>
+
+  <!-- Atomic Sync -->
+  <rect x="518" y="168" width="102" height="24" rx="12"
+        fill="url(#bfeat)" stroke="#8b5cf6" stroke-opacity=".45" stroke-width=".75"/>
+  <text x="569" y="184.5"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+    font-size="11" fill="#c4b5fd" text-anchor="middle">Atomic Sync</text>
+
+  <!-- mcp CLI -->
+  <rect x="628" y="168" width="76" height="24" rx="12"
+        fill="url(#bfeat)" stroke="#8b5cf6" stroke-opacity=".45" stroke-width=".75"/>
+  <text x="666" y="184.5"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+    font-size="11" fill="#c4b5fd" text-anchor="middle">mcp CLI</text>
+
+  <!-- ══════════════════════════════════════════════
+       ROW 3 — IDEs  (y_top=202)
+       Windsurf=86 · VS Code=78 · OpenCode=88
+       Cursor=70 · Claude=68 · Claude Code=94
+       total=492  start=(900-492)/2=204
+       ══════════════════════════════════════════════ -->
+
+  <!-- Windsurf -->
+  <rect x="204" y="202" width="86" height="24" rx="12"
+        fill="url(#bide)" stroke="#10b981" stroke-opacity=".45" stroke-width=".75"/>
+  <text x="247" y="218.5"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+    font-size="11" fill="#6ee7b7" text-anchor="middle">Windsurf</text>
+
+  <!-- VS Code -->
+  <rect x="298" y="202" width="78" height="24" rx="12"
+        fill="url(#bide)" stroke="#10b981" stroke-opacity=".45" stroke-width=".75"/>
+  <text x="337" y="218.5"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+    font-size="11" fill="#6ee7b7" text-anchor="middle">VS Code</text>
+
+  <!-- OpenCode -->
+  <rect x="384" y="202" width="88" height="24" rx="12"
+        fill="url(#bide)" stroke="#10b981" stroke-opacity=".45" stroke-width=".75"/>
+  <text x="428" y="218.5"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+    font-size="11" fill="#6ee7b7" text-anchor="middle">OpenCode</text>
+
+  <!-- Cursor -->
+  <rect x="480" y="202" width="70" height="24" rx="12"
+        fill="url(#bide)" stroke="#10b981" stroke-opacity=".45" stroke-width=".75"/>
+  <text x="515" y="218.5"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+    font-size="11" fill="#6ee7b7" text-anchor="middle">Cursor</text>
+
+  <!-- Claude -->
+  <rect x="558" y="202" width="68" height="24" rx="12"
+        fill="url(#bide)" stroke="#10b981" stroke-opacity=".45" stroke-width=".75"/>
+  <text x="592" y="218.5"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+    font-size="11" fill="#6ee7b7" text-anchor="middle">Claude</text>
+
+  <!-- Claude Code -->
+  <rect x="634" y="202" width="94" height="24" rx="12"
+        fill="url(#bide)" stroke="#10b981" stroke-opacity=".45" stroke-width=".75"/>
+  <text x="681" y="218.5"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+    font-size="11" fill="#6ee7b7" text-anchor="middle">Claude Code</text>
+
+  <!-- ── Tagline ── -->
+  <text x="450" y="253"
+    font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+    font-size="10.5" fill="#6b7280" text-anchor="middle" letter-spacing=".4">
+    Zero-polling MCP config sync for macOS · Instant · Battery-friendly · Reboot-safe
+  </text>
+</svg>

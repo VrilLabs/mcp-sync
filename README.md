@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="header.svg" alt="MCP Sync by VRIL LABS" width="900"/>
+</div>
+
 # mcp-sync
 
 > Zero-polling MCP config sync for macOS — Windsurf → canonical → OpenCode (and VSCode).  

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 mcp — CLI helper for mcp-sync
-Manages the canonical ~/.config/mcp-servers.json and syncs to all targets.
+Manages the canonical ~/.config/mcp-servers.json and syncs to all IDE targets.
+Supports: Windsurf, VSCode, Cursor, Zed, Claude Code, OpenCode
 """
 
 import argparse
@@ -15,31 +16,46 @@ from datetime import datetime
 from pathlib import Path
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-HOME            = Path.home()
-CANON           = HOME / ".config/mcp-servers.json"
-WINDSURF_SRC    = HOME / ".codeium/windsurf/mcp_config.json"
-VSCODE_SRC      = HOME / "Library/Application Support/Code/User/mcp.json"
-OPENCODE_OUT    = HOME / ".config/opencode/opencode.json"
-SYNC_SCRIPT     = HOME / ".config/mcp-sync/scripts/sync-mcp.sh"
-LOG_FILE        = HOME / ".config/mcp-sync/sync.log"
-ERR_FILE        = HOME / ".config/mcp-sync/sync.err"
-PLIST_LABEL     = "com.user.mcp-sync"
-PLIST_PATH      = HOME / f"Library/LaunchAgents/{PLIST_LABEL}.plist"
+HOME = Path.home()
+CANON = HOME / ".config/mcp-servers.json"
+WINDSURF_CFG = HOME / ".codeium/windsurf/mcp_config.json"
+VSCODE_CFG = HOME / "Library/Application Support/Code/User/mcp.json"
+CURSOR_CFG = HOME / ".cursor/mcp.json"
+ZED_CFG = HOME / ".config/zed/settings.json"
+CLAUDE_CODE_CFG = HOME / ".claude.json"
+OPENCODE_CFG = HOME / ".config/opencode/opencode.json"
+SYNC_SCRIPT = HOME / ".config/mcp-sync/scripts/sync-mcp.sh"
+LOG_FILE = HOME / ".config/mcp-sync/sync.log"
+ERR_FILE = HOME / ".config/mcp-sync/sync.err"
+PLIST_LABEL = "com.user.mcp-sync"
+PLIST_PATH = HOME / f"Library/LaunchAgents/{PLIST_LABEL}.plist"
+
+# IDE registry — maps IDE name to (config path, wrapper key, server format)
+IDE_REGISTRY = {
+    "windsurf":    {"path": WINDSURF_CFG,    "key": "mcpServers",      "format": "standard"},
+    "vscode":      {"path": VSCODE_CFG,      "key": "servers",         "format": "vscode"},
+    "cursor":      {"path": CURSOR_CFG,      "key": "mcpServers",      "format": "standard"},
+    "zed":         {"path": ZED_CFG,         "key": "context_servers", "format": "zed"},
+    "claude-code": {"path": CLAUDE_CODE_CFG, "key": "mcpServers",      "format": "standard"},
+    "opencode":    {"path": OPENCODE_CFG,    "key": "mcpServers",      "format": "standard"},
+}
 
 # ── Colors ─────────────────────────────────────────────────────────────────────
-GREEN  = "\033[0;32m"
-RED    = "\033[0;31m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
 YELLOW = "\033[1;33m"
-CYAN   = "\033[0;36m"
-BOLD   = "\033[1m"
-DIM    = "\033[2m"
-NC     = "\033[0m"
+CYAN = "\033[0;36m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+NC = "\033[0m"
+
 
 def ok(msg):   print(f"{GREEN}✓{NC} {msg}")
 def err(msg):  print(f"{RED}✗{NC} {msg}")
 def warn(msg): print(f"{YELLOW}⚠{NC} {msg}")
 def info(msg): print(f"{CYAN}→{NC} {msg}")
 def dim(msg):  print(f"{DIM}{msg}{NC}")
+
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def load_canon() -> dict:
@@ -50,16 +66,27 @@ def load_canon() -> dict:
     with open(CANON) as f:
         return json.load(f)
 
+
+def save_canon(data: dict):
+    CANON.parent.mkdir(parents=True, exist_ok=True)
+    with open(CANON, "w") as f:
+        json.dump(data, f, indent=2)
+    os.chmod(CANON, 0o600)
+
+
 def run_sync():
     if not SYNC_SCRIPT.exists():
         err(f"Sync script not found: {SYNC_SCRIPT}")
         err("Re-run install.sh")
         sys.exit(1)
     result = subprocess.run([str(SYNC_SCRIPT)], capture_output=True, text=True)
-    print(result.stdout.strip())
+    if result.stdout.strip():
+        print(result.stdout.strip())
     if result.returncode != 0:
-        err(result.stderr.strip())
+        if result.stderr.strip():
+            err(result.stderr.strip())
         sys.exit(result.returncode)
+
 
 def agent_status() -> str:
     result = subprocess.run(
@@ -67,7 +94,6 @@ def agent_status() -> str:
         capture_output=True, text=True
     )
     if result.returncode == 0:
-        # Extract PID from output
         for line in result.stdout.splitlines():
             if line.strip().startswith('"PID"'):
                 pid = line.split("=")[1].strip().rstrip(";")
@@ -75,9 +101,15 @@ def agent_status() -> str:
         return "loaded (idle)"
     return "not loaded"
 
+
 def fswatch_running() -> bool:
-    result = subprocess.run(["pgrep", "-f", "fswatch.*mcp_config"], capture_output=True)
+    result = subprocess.run(["pgrep", "-f", "fswatch.*mcp"], capture_output=True)
     return result.returncode == 0
+
+
+def check_node_available() -> bool:
+    return shutil.which("node") is not None or shutil.which("npx") is not None
+
 
 # ── Commands ───────────────────────────────────────────────────────────────────
 def cmd_list(args):
@@ -88,18 +120,22 @@ def cmd_list(args):
         return
     print(f"\n{BOLD}MCP Servers{NC} ({CANON})\n")
     for name, cfg in sorted(data.items()):
-        cmd   = cfg.get("command", "")
-        a     = cfg.get("args", [])
-        env   = cfg.get("env", {})
+        cmd = cfg.get("command", "")
+        a = cfg.get("args", [])
+        env = cfg.get("env", {})
+        url = cfg.get("url", "")
         label = f"{GREEN}{name}{NC}"
         print(f"  {label}")
         if cmd:
             print(f"    {DIM}command:{NC} {cmd} {' '.join(str(x) for x in a)}")
+        if url:
+            print(f"    {DIM}url:{NC}     {url}")
         if env:
             for k, v in env.items():
-                masked = "****" if any(s in k.upper() for s in ("KEY","TOKEN","SECRET","PASS","AUTH")) else v
+                masked = "****" if any(s in k.upper() for s in ("KEY", "TOKEN", "SECRET", "PASS", "AUTH")) else v
                 print(f"    {DIM}env:{NC}     {k}={masked}")
         print()
+
 
 def cmd_status(args):
     """Check sync status — agent, fswatch, file freshness, targets."""
@@ -108,12 +144,11 @@ def cmd_status(args):
     # Agent
     status = agent_status()
     running = "running" in status
-    symbol = ok if running else warn
     (ok if running else warn)(f"launchd agent:  {status}")
 
     # fswatch process
     fw = fswatch_running()
-    (ok if fw else warn)(f"fswatch:        {'active' if fw else 'not detected (agent may be idle)'}")
+    (ok if fw else warn)(f"fswatch:        {'active' if fw else 'not detected'}")
 
     # Canonical file
     if CANON.exists():
@@ -123,25 +158,16 @@ def cmd_status(args):
     else:
         err(f"canonical:      not found ({CANON})")
 
-    # Sources
+    # All IDE configs
     print()
-    info("Sources:")
-    for label, path in [("Windsurf", WINDSURF_SRC), ("VSCode", VSCODE_SRC)]:
+    info("IDE configurations:")
+    for ide_name, ide_info in IDE_REGISTRY.items():
+        path = ide_info["path"]
         if path.exists():
             mtime = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-            ok(f"  {label:<10} {path}  [updated {mtime}]")
+            ok(f"  {ide_name:<12} {path}  [updated {mtime}]")
         else:
-            dim(f"  {label:<10} not found — {path}")
-
-    # Targets
-    print()
-    info("Sync targets:")
-    for label, path in [("OpenCode", OPENCODE_OUT)]:
-        if path.exists():
-            mtime = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-            ok(f"  {label:<10} {path}  [updated {mtime}]")
-        else:
-            warn(f"  {label:<10} not found — run: mcp sync")
+            dim(f"  {ide_name:<12} not found — {path}")
 
     # Log tail
     if LOG_FILE.exists():
@@ -153,35 +179,57 @@ def cmd_status(args):
                 dim(f"  {line}")
     print()
 
+
 def cmd_sync(args):
     """Manually trigger a sync from the best available source."""
     info("Triggering sync...")
     run_sync()
 
+
 def cmd_diff(args):
-    """Show diff between canonical and each target."""
-    if not shutil.which("diff"):
-        err("diff not available")
-        sys.exit(1)
+    """Show diff between canonical and each IDE target."""
     canon_data = load_canon()
-    for label, path, key in [
-        ("OpenCode", OPENCODE_OUT, "mcp"),
-    ]:
+
+    targets = [
+        ("Windsurf",    WINDSURF_CFG,    "mcpServers"),
+        ("VSCode",      VSCODE_CFG,      "servers"),
+        ("Cursor",      CURSOR_CFG,      "mcpServers"),
+        ("Zed",         ZED_CFG,         "context_servers"),
+        ("Claude Code", CLAUDE_CODE_CFG, "mcpServers"),
+        ("OpenCode",    OPENCODE_CFG,    "mcpServers"),
+    ]
+
+    print(f"\n{BOLD}Comparing canonical ({len(canon_data)} servers) vs IDE targets:{NC}\n")
+    for label, path, key in targets:
         if not path.exists():
-            warn(f"{label}: target not found ({path})")
+            dim(f"  {label:<12} not found ({path})")
             continue
-        with open(path) as f:
-            target_data = json.load(f).get(key, {})
-        if canon_data == target_data:
-            ok(f"{label}: in sync")
-        else:
-            warn(f"{label}: differs from canonical")
-            canon_keys  = set(canon_data.keys())
-            target_keys = set(target_data.keys())
-            for k in sorted(canon_keys - target_keys):
-                print(f"  {RED}+ {k}{NC} (in canonical, missing from target)")
-            for k in sorted(target_keys - canon_keys):
-                print(f"  {YELLOW}- {k}{NC} (in target, missing from canonical)")
+        try:
+            with open(path) as f:
+                file_data = json.load(f)
+            target_data = file_data.get(key, {})
+            # Normalize: strip format-specific fields for comparison
+            normalized = {}
+            for k, v in target_data.items():
+                entry = {ek: ev for ek, ev in v.items() if ek not in ("type", "source")}
+                normalized[k] = entry
+            if canon_data == normalized:
+                ok(f"  {label:<12} in sync")
+            else:
+                canon_keys = set(canon_data.keys())
+                target_keys = set(normalized.keys())
+                warn(f"  {label:<12} differs")
+                for k in sorted(canon_keys - target_keys):
+                    print(f"    {RED}+ {k}{NC} (in canonical, missing from target)")
+                for k in sorted(target_keys - canon_keys):
+                    print(f"    {YELLOW}- {k}{NC} (in target, missing from canonical)")
+                for k in sorted(canon_keys & target_keys):
+                    if canon_data[k] != normalized[k]:
+                        print(f"    {YELLOW}~ {k}{NC} (config differs)")
+        except (json.JSONDecodeError, KeyError) as e:
+            err(f"  {label:<12} error reading: {e}")
+    print()
+
 
 def cmd_logs(args):
     """Tail the sync log."""
@@ -192,6 +240,7 @@ def cmd_logs(args):
     lines = LOG_FILE.read_text().splitlines()
     for line in lines[-n:]:
         print(line)
+
 
 def cmd_agent(args):
     """Control the launchd agent (start/stop/restart/reload)."""
@@ -206,6 +255,7 @@ def cmd_agent(args):
         s = agent_status()
         print(f"Agent status: {s}")
 
+
 def cmd_add(args):
     """Add a server entry to the canonical config."""
     data = load_canon() if CANON.exists() else {}
@@ -219,12 +269,11 @@ def cmd_add(args):
     if args.env:
         entry["env"] = dict(pair.split("=", 1) for pair in args.env)
     data[name] = entry
-    CANON.parent.mkdir(parents=True, exist_ok=True)
-    with open(CANON, "w") as f:
-        json.dump(data, f, indent=2)
+    save_canon(data)
     ok(f"Added '{name}' → {CANON}")
     info("Syncing targets...")
     run_sync()
+
 
 def cmd_remove(args):
     """Remove a server from the canonical config."""
@@ -233,22 +282,25 @@ def cmd_remove(args):
         err(f"Server '{args.name}' not found.")
         sys.exit(1)
     del data[args.name]
-    with open(CANON, "w") as f:
-        json.dump(data, f, indent=2)
+    save_canon(data)
     ok(f"Removed '{args.name}'")
     run_sync()
+
 
 def cmd_paths(args):
     """Print all relevant file paths."""
     print(f"\n{BOLD}mcp-sync paths{NC}\n")
     paths = [
-        ("canonical",       CANON),
-        ("windsurf src",    WINDSURF_SRC),
-        ("vscode src",      VSCODE_SRC),
-        ("opencode out",    OPENCODE_OUT),
-        ("sync script",     SYNC_SCRIPT),
-        ("log",             LOG_FILE),
-        ("launchd plist",   PLIST_PATH),
+        ("canonical", CANON),
+        ("windsurf", WINDSURF_CFG),
+        ("vscode", VSCODE_CFG),
+        ("cursor", CURSOR_CFG),
+        ("zed", ZED_CFG),
+        ("claude-code", CLAUDE_CODE_CFG),
+        ("opencode", OPENCODE_CFG),
+        ("sync script", SYNC_SCRIPT),
+        ("log", LOG_FILE),
+        ("launchd plist", PLIST_PATH),
     ]
     for label, p in paths:
         exists = Path(p).exists()
@@ -256,42 +308,327 @@ def cmd_paths(args):
         print(f"  {sym} {label:<16} {p}")
     print()
 
+
+# ── Doctor Command ─────────────────────────────────────────────────────────────
+def cmd_doctor(args):
+    """Validate MCP configuration files for specified IDEs."""
+    ides = args.ides if args.ides else list(IDE_REGISTRY.keys())
+    print(f"\n{BOLD}mcp doctor{NC} — validating MCP configurations\n")
+
+    all_ok = True
+    for ide_name in ides:
+        ide_name_lower = ide_name.lower().replace(" ", "-")
+        if ide_name_lower not in IDE_REGISTRY:
+            err(f"Unknown IDE: {ide_name}. Available: {', '.join(IDE_REGISTRY.keys())}")
+            all_ok = False
+            continue
+
+        ide_info = IDE_REGISTRY[ide_name_lower]
+        path = ide_info["path"]
+        key = ide_info["key"]
+        fmt = ide_info["format"]
+
+        print(f"  {BOLD}{ide_name_lower}{NC} ({path})")
+
+        if not path.exists():
+            warn(f"    Config file not found — will be created on next sync")
+            continue
+
+        # 1. Valid JSON
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            err(f"    Invalid JSON: {e}")
+            all_ok = False
+            continue
+        ok(f"    Valid JSON")
+
+        # 2. Correct top-level key
+        if key not in data:
+            err(f"    Missing required key: '{key}'")
+            all_ok = False
+            continue
+        ok(f"    Has '{key}' key")
+
+        servers = data[key]
+        if not isinstance(servers, dict):
+            err(f"    '{key}' must be an object (got {type(servers).__name__})")
+            all_ok = False
+            continue
+
+        # 3. Validate each server entry
+        for srv_name, srv_cfg in servers.items():
+            issues = []
+
+            if not isinstance(srv_cfg, dict):
+                issues.append("server config must be an object")
+                continue
+
+            has_command = "command" in srv_cfg
+            has_url = "url" in srv_cfg or "serverUrl" in srv_cfg
+
+            if not has_command and not has_url:
+                issues.append("missing 'command' or 'url'")
+
+            # Format-specific validations
+            if fmt == "vscode":
+                if has_command and "type" not in srv_cfg:
+                    issues.append("VSCode requires 'type' field (stdio/http)")
+                if "type" in srv_cfg and srv_cfg["type"] not in ("stdio", "http", "sse"):
+                    issues.append(f"invalid type '{srv_cfg['type']}' (expected: stdio, http, sse)")
+
+            if fmt == "zed":
+                if "source" not in srv_cfg:
+                    issues.append("Zed requires 'source' field (usually 'custom')")
+
+            if has_command:
+                cmd = srv_cfg["command"]
+                if not isinstance(cmd, str) or not cmd.strip():
+                    issues.append("'command' must be a non-empty string")
+                if "args" in srv_cfg and not isinstance(srv_cfg["args"], list):
+                    issues.append("'args' must be an array")
+
+            if "env" in srv_cfg and not isinstance(srv_cfg.get("env"), dict):
+                issues.append("'env' must be an object")
+
+            if issues:
+                err(f"    {srv_name}: {'; '.join(issues)}")
+                all_ok = False
+            else:
+                ok(f"    {srv_name}: valid")
+
+        # 4. File permissions check
+        mode = oct(path.stat().st_mode)[-3:]
+        if mode not in ("600", "644", "640"):
+            warn(f"    File permissions: {mode} (recommend 600 for security)")
+
+    print()
+    if all_ok:
+        ok("All checks passed!")
+    else:
+        err("Some issues found — fix them above or run: mcp sync")
+    print()
+
+
+# ── MCP Tool Management (via mcp-get) ─────────────────────────────────────────
+def cmd_install_tool(args):
+    """Install an MCP server package from the registry."""
+    if not check_node_available():
+        err("Node.js/npx not found. Install from https://nodejs.org")
+        sys.exit(1)
+
+    package = args.package
+    info(f"Installing MCP server: {package}")
+    result = subprocess.run(
+        ["npx", "-y", "@michaellatman/mcp-get@latest", "install", package],
+        text=True
+    )
+    if result.returncode == 0:
+        ok(f"Installed '{package}'")
+        info("Syncing configuration...")
+        run_sync()
+    else:
+        err(f"Failed to install '{package}'")
+        sys.exit(1)
+
+
+def cmd_uninstall_tool(args):
+    """Uninstall an MCP server package."""
+    if not check_node_available():
+        err("Node.js/npx not found. Install from https://nodejs.org")
+        sys.exit(1)
+
+    package = args.package
+    info(f"Uninstalling MCP server: {package}")
+    result = subprocess.run(
+        ["npx", "-y", "@michaellatman/mcp-get@latest", "uninstall", package],
+        text=True
+    )
+    if result.returncode == 0:
+        ok(f"Uninstalled '{package}'")
+        # Also remove from canonical if present
+        if CANON.exists():
+            data = load_canon()
+            # Try to match by package name
+            pkg_short = package.split("/")[-1].replace("server-", "")
+            removed = False
+            for key in list(data.keys()):
+                if pkg_short in key or package in json.dumps(data[key]):
+                    del data[key]
+                    removed = True
+            if removed:
+                save_canon(data)
+                info("Removed from canonical config")
+                run_sync()
+    else:
+        err(f"Failed to uninstall '{package}'")
+        sys.exit(1)
+
+
+def cmd_search_tools(args):
+    """Search available MCP server packages from the registry."""
+    if not check_node_available():
+        err("Node.js/npx not found. Install from https://nodejs.org")
+        sys.exit(1)
+
+    info("Fetching available MCP servers from registry...")
+    result = subprocess.run(
+        ["npx", "-y", "@michaellatman/mcp-get@latest", "list"],
+        text=True, capture_output=True
+    )
+    if result.returncode != 0:
+        err("Failed to fetch package list")
+        if result.stderr:
+            print(result.stderr)
+        sys.exit(1)
+
+    output = result.stdout
+    if args.query:
+        # Filter results by query
+        query_lower = args.query.lower()
+        lines = output.splitlines()
+        header_printed = False
+        for line in lines:
+            if query_lower in line.lower() or not line.strip().startswith("@"):
+                if not header_printed and line.strip():
+                    header_printed = True
+                print(line)
+    else:
+        print(output)
+
+
+def cmd_test_tool(args):
+    """Test an MCP server by verifying it can start and respond."""
+    data = load_canon()
+    name = args.name
+
+    if name not in data:
+        err(f"Server '{name}' not found in canonical config.")
+        info("Available servers:")
+        for k in sorted(data.keys()):
+            print(f"  • {k}")
+        sys.exit(1)
+
+    cfg = data[name]
+    cmd = cfg.get("command")
+    cmd_args = cfg.get("args", [])
+    env_vars = cfg.get("env", {})
+
+    if not cmd:
+        err(f"Server '{name}' has no command defined (may be URL-based)")
+        sys.exit(1)
+
+    info(f"Testing MCP server: {name}")
+    info(f"  Command: {cmd} {' '.join(str(a) for a in cmd_args)}")
+
+    # Resolve command path
+    cmd_path = shutil.which(cmd)
+    if not cmd_path:
+        err(f"  Command not found: {cmd}")
+        info("  Ensure it's installed and in PATH")
+        sys.exit(1)
+    ok(f"  Command found: {cmd_path}")
+
+    # Try to start the server and check if it responds
+    env = os.environ.copy()
+    env.update(env_vars)
+
+    try:
+        proc = subprocess.Popen(
+            [cmd] + cmd_args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            text=True
+        )
+        # Send MCP initialize request
+        init_request = json.dumps({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "mcp-sync-test", "version": "1.0.0"}
+            }
+        })
+        try:
+            stdout, stderr = proc.communicate(input=init_request + "\n", timeout=10)
+            if stdout.strip():
+                try:
+                    response = json.loads(stdout.strip().split("\n")[0])
+                    if "result" in response:
+                        ok(f"  Server responded with MCP protocol")
+                        server_info = response.get("result", {}).get("serverInfo", {})
+                        if server_info:
+                            ok(f"  Server: {server_info.get('name', 'unknown')} v{server_info.get('version', '?')}")
+                    elif "error" in response:
+                        warn(f"  Server returned error: {response['error'].get('message', 'unknown')}")
+                    else:
+                        warn(f"  Server responded but format unexpected")
+                except json.JSONDecodeError:
+                    warn(f"  Server produced output but not valid JSON-RPC")
+            else:
+                if proc.returncode == 0:
+                    ok(f"  Server started and exited cleanly")
+                else:
+                    warn(f"  Server exited with code {proc.returncode}")
+                    if stderr.strip():
+                        dim(f"  stderr: {stderr.strip()[:200]}")
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            ok(f"  Server started successfully (still running after 10s — healthy)")
+    except FileNotFoundError:
+        err(f"  Cannot start: {cmd} not found")
+        sys.exit(1)
+    except Exception as e:
+        err(f"  Error testing server: {e}")
+        sys.exit(1)
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(
         prog="mcp",
-        description="mcp-sync CLI — manage and monitor your MCP server configs",
+        description="mcp-sync CLI — manage and sync MCP server configs across all IDEs",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""\
         examples:
-          mcp list                        # list all MCP servers
-          mcp status                      # full sync status
-          mcp sync                        # manual sync now
-          mcp diff                        # compare canonical vs targets
-          mcp logs                        # show last 20 log lines
-          mcp logs --lines 50             # show last 50 log lines
-          mcp agent restart               # restart launchd agent
-          mcp add my-server npx -- -y @my/server --port 3000
+          mcp list                           # list all MCP servers
+          mcp status                         # full sync status
+          mcp sync                           # manual sync now
+          mcp diff                           # compare canonical vs all IDEs
+          mcp doctor                         # validate all IDE configs
+          mcp doctor vscode cursor zed       # validate specific IDEs
+          mcp install @modelcontextprotocol/server-filesystem
+          mcp uninstall @modelcontextprotocol/server-filesystem
+          mcp search filesystem              # search MCP registry
+          mcp test my-server                 # test a configured server
+          mcp add my-server npx -- -y @my/server
           mcp remove my-server
-          mcp paths                       # show all config file paths
+          mcp agent restart                  # restart launchd agent
+          mcp paths                          # show all config file paths
+          mcp logs                           # show last 20 log lines
         """)
     )
     sub = parser.add_subparsers(dest="command")
 
-    sub.add_parser("list",   help="List all MCP servers from canonical config")
-    sub.add_parser("status", help="Show sync status (agent, fswatch, files)")
-    sub.add_parser("sync",   help="Manually trigger a sync now")
-    sub.add_parser("diff",   help="Diff canonical config vs sync targets")
-    sub.add_parser("paths",  help="Print all relevant file paths")
+    sub.add_parser("list", help="List all MCP servers from canonical config")
+    sub.add_parser("status", help="Show sync status (agent, fswatch, all IDEs)")
+    sub.add_parser("sync", help="Manually trigger a sync now")
+    sub.add_parser("diff", help="Diff canonical config vs all IDE targets")
+    sub.add_parser("paths", help="Print all relevant file paths")
 
     p_logs = sub.add_parser("logs", help="Tail the sync log")
     p_logs.add_argument("--lines", "-n", type=int, default=20, help="Number of lines (default: 20)")
 
     p_agent = sub.add_parser("agent", help="Control the launchd background agent")
-    p_agent.add_argument("action", choices=["start","stop","restart","reload","status"])
+    p_agent.add_argument("action", choices=["start", "stop", "restart", "reload", "status"])
 
     p_add = sub.add_parser("add", help="Add a server to canonical config and sync")
-    p_add.add_argument("name",    help="Server name (key in mcpServers)")
+    p_add.add_argument("name", help="Server name (key in mcpServers)")
     p_add.add_argument("command", help="Command to run (e.g. npx, node, python3)")
     p_add.add_argument("args", nargs="*", help="Arguments to pass to command")
     p_add.add_argument("--env", "-e", nargs="*", default=[], metavar="K=V", help="Env vars (KEY=VALUE)")
@@ -300,24 +637,47 @@ def main():
     p_rm = sub.add_parser("remove", help="Remove a server from canonical config and sync")
     p_rm.add_argument("name", help="Server name to remove")
 
+    # Doctor command
+    p_doctor = sub.add_parser("doctor", help="Validate MCP configs for specified IDEs")
+    p_doctor.add_argument("ides", nargs="*", help=f"IDEs to check (default: all). Options: {', '.join(IDE_REGISTRY.keys())}")
+
+    # MCP tool management
+    p_install = sub.add_parser("install", help="Install an MCP server package from the registry")
+    p_install.add_argument("package", help="Package name (e.g. @modelcontextprotocol/server-filesystem)")
+
+    p_uninstall = sub.add_parser("uninstall", help="Uninstall an MCP server package")
+    p_uninstall.add_argument("package", help="Package name to uninstall")
+
+    p_search = sub.add_parser("search", help="Search available MCP server packages")
+    p_search.add_argument("query", nargs="?", default="", help="Search query (optional)")
+
+    p_test = sub.add_parser("test", help="Test an MCP server by starting it")
+    p_test.add_argument("name", help="Server name from canonical config to test")
+
     args = parser.parse_args()
 
     dispatch = {
-        "list":   cmd_list,
-        "status": cmd_status,
-        "sync":   cmd_sync,
-        "diff":   cmd_diff,
-        "logs":   cmd_logs,
-        "agent":  cmd_agent,
-        "add":    cmd_add,
-        "remove": cmd_remove,
-        "paths":  cmd_paths,
+        "list":      cmd_list,
+        "status":    cmd_status,
+        "sync":      cmd_sync,
+        "diff":      cmd_diff,
+        "logs":      cmd_logs,
+        "agent":     cmd_agent,
+        "add":       cmd_add,
+        "remove":    cmd_remove,
+        "paths":     cmd_paths,
+        "doctor":    cmd_doctor,
+        "install":   cmd_install_tool,
+        "uninstall": cmd_uninstall_tool,
+        "search":    cmd_search_tools,
+        "test":      cmd_test_tool,
     }
 
     if args.command in dispatch:
         dispatch[args.command](args)
     else:
         parser.print_help()
+
 
 if __name__ == "__main__":
     main()

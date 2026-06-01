@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # install.sh — Run once to install mcp-sync on macOS.
 # Installs brew deps, copies scripts, registers launchd agent, installs CLI helper.
+# Supports: Windsurf, VSCode, Cursor, Zed, Claude Code, OpenCode
 
 set -euo pipefail
 
@@ -11,10 +12,11 @@ PLIST_DIR="${HOME}/Library/LaunchAgents"
 PLIST_LABEL="com.user.mcp-sync"
 PLIST_PATH="${PLIST_DIR}/${PLIST_LABEL}.plist"
 
-GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; NC='\033[0m'
+GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 ok()   { echo -e "${GREEN}✓${NC} $*"; }
 warn() { echo -e "${YELLOW}⚠${NC} $*"; }
 fail() { echo -e "${RED}✗${NC} $*"; exit 1; }
+info() { echo -e "${CYAN}→${NC} $*"; }
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -68,7 +70,7 @@ if [[ ":$PATH:" != *":$BIN_TARGET:"* ]]; then
   fi
 fi
 
-# ── 4. Bootstrap canonical file from Windsurf ────────────────────
+# ── 4. Bootstrap canonical file ──────────────────────────────────
 echo ""
 echo "→ Bootstrapping canonical MCP config..."
 "$INSTALL_TARGET/scripts/sync-mcp.sh" || warn "Initial sync skipped (no source found yet)"
@@ -80,8 +82,27 @@ mkdir -p "$PLIST_DIR"
 
 FSWATCH_BIN="$(command -v fswatch)"
 SYNC_SCRIPT="$INSTALL_TARGET/scripts/sync-mcp.sh"
-WINDSURF_SRC="${HOME}/.codeium/windsurf/mcp_config.json"
-VSCODE_SRC="${HOME}/Library/Application Support/Code/User/mcp.json"
+
+# All IDE config paths to watch
+WINDSURF_CFG="${HOME}/.codeium/windsurf/mcp_config.json"
+VSCODE_CFG="${HOME}/Library/Application Support/Code/User/mcp.json"
+CURSOR_CFG="${HOME}/.cursor/mcp.json"
+ZED_CFG="${HOME}/.config/zed/settings.json"
+CLAUDE_CODE_CFG="${HOME}/.claude.json"
+OPENCODE_CFG="${HOME}/.config/opencode/opencode.json"
+
+# Build fswatch command watching all existing config directories
+WATCH_PATHS=""
+for cfg_path in "$WINDSURF_CFG" "$VSCODE_CFG" "$CURSOR_CFG" "$ZED_CFG" "$CLAUDE_CODE_CFG" "$OPENCODE_CFG"; do
+  cfg_dir=$(dirname "$cfg_path")
+  if [ -d "$cfg_dir" ] || [ -f "$cfg_path" ]; then
+    WATCH_PATHS="$WATCH_PATHS \"$cfg_path\""
+  fi
+done
+
+# Always ensure at least the common directories exist for watching
+mkdir -p "${HOME}/.config/opencode"
+mkdir -p "${HOME}/.config/zed" 2>/dev/null || true
 
 cat > "$PLIST_PATH" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -94,7 +115,7 @@ cat > "$PLIST_PATH" << PLIST
   <array>
     <string>/bin/sh</string>
     <string>-c</string>
-    <string>${FSWATCH_BIN} -o "${WINDSURF_SRC}" "${VSCODE_SRC}" 2>/dev/null | xargs -n1 -I{} ${SYNC_SCRIPT}</string>
+    <string>${FSWATCH_BIN} --event Updated "${WINDSURF_CFG}" "${VSCODE_CFG}" "${CURSOR_CFG}" "${ZED_CFG}" "${CLAUDE_CODE_CFG}" "${OPENCODE_CFG}" 2>/dev/null | while read f; do ${SYNC_SCRIPT} "\$f"; done</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -108,8 +129,6 @@ cat > "$PLIST_PATH" << PLIST
   <dict>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-    <key>HOME</key>
-    <string>${HOME}</string>
   </dict>
 </dict>
 </plist>
@@ -120,12 +139,36 @@ launchctl unload "$PLIST_PATH" 2>/dev/null || true
 launchctl load   "$PLIST_PATH"
 ok "launchd agent loaded (auto-starts on login)"
 
+# ── 6. Detect installed IDEs ─────────────────────────────────────
+echo ""
+info "Detected IDE configurations:"
+declare -A IDE_PATHS=(
+  ["Windsurf"]="$WINDSURF_CFG"
+  ["VSCode"]="$VSCODE_CFG"
+  ["Cursor"]="$CURSOR_CFG"
+  ["Zed"]="$ZED_CFG"
+  ["Claude Code"]="$CLAUDE_CODE_CFG"
+  ["OpenCode"]="$OPENCODE_CFG"
+)
+for ide in "Windsurf" "VSCode" "Cursor" "Zed" "Claude Code" "OpenCode"; do
+  cfg="${IDE_PATHS[$ide]}"
+  if [ -f "$cfg" ]; then
+    ok "  $ide: $cfg"
+  elif [ -d "$(dirname "$cfg")" ]; then
+    warn "  $ide: directory exists, config will be created on sync"
+  else
+    echo -e "  ${YELLOW}○${NC} $ide: not installed"
+  fi
+done
+
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo -e "${GREEN}  Installation complete!${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "  Test watcher (foreground):  $INSTALL_TARGET/scripts/test-watcher.sh"
-echo "  CLI helper:                 mcp --help"
-echo "  Sync log:                   ~/.config/mcp-sync/sync.log"
+echo "  Usage:                        mcp --help"
+echo "  Validate configs:             mcp doctor"
+echo "  Test watcher (foreground):    $INSTALL_TARGET/scripts/test-watcher.sh"
+echo "  Sync log:                     ~/.config/mcp-sync/sync.log"
+echo "  Install MCP servers:          mcp search | mcp install <package>"
 echo ""

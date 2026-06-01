@@ -3,8 +3,13 @@
 
 set -euo pipefail
 
-WINDSURF_SRC="${HOME}/.codeium/windsurf/mcp_config.json"
-VSCODE_SRC="${HOME}/Library/Application Support/Code/User/mcp.json"
+WINDSURF_CFG="${HOME}/.codeium/windsurf/mcp_config.json"
+VSCODE_CFG="${HOME}/Library/Application Support/Code/User/mcp.json"
+CURSOR_CFG="${HOME}/.cursor/mcp.json"
+ZED_CFG="${HOME}/.config/zed/settings.json"
+CLAUDE_CODE_CFG="${HOME}/.claude.json"
+OPENCODE_CFG="${HOME}/.config/opencode/opencode.json"
+CANON="${HOME}/.config/mcp-servers.json"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SYNC_SCRIPT="$SCRIPT_DIR/sync-mcp.sh"
 
@@ -19,13 +24,30 @@ if ! command -v jq &>/dev/null; then
 fi
 
 WATCH_TARGETS=()
-[ -f "$WINDSURF_SRC" ] && WATCH_TARGETS+=("$WINDSURF_SRC") && echo "👀 Watching Windsurf: $WINDSURF_SRC"
-[ -f "$VSCODE_SRC"   ] && WATCH_TARGETS+=("$VSCODE_SRC")   && echo "👀 Watching VSCode:   $VSCODE_SRC"
+
+declare -A IDE_LABELS=(
+  ["$WINDSURF_CFG"]="Windsurf"
+  ["$VSCODE_CFG"]="VSCode"
+  ["$CURSOR_CFG"]="Cursor"
+  ["$ZED_CFG"]="Zed"
+  ["$CLAUDE_CODE_CFG"]="Claude Code"
+  ["$OPENCODE_CFG"]="OpenCode"
+  ["$CANON"]="Canonical"
+)
+
+for path in "$WINDSURF_CFG" "$VSCODE_CFG" "$CURSOR_CFG" "$ZED_CFG" "$CLAUDE_CODE_CFG" "$OPENCODE_CFG" "$CANON"; do
+  if [ -f "$path" ]; then
+    WATCH_TARGETS+=("$path")
+    echo "👀 Watching ${IDE_LABELS[$path]}: $path"
+  fi
+done
 
 if [ ${#WATCH_TARGETS[@]} -eq 0 ]; then
   echo "✗ No MCP config files found to watch."
-  echo "  Expected: $WINDSURF_SRC"
-  echo "         or $VSCODE_SRC"
+  echo "  Expected one of:"
+  for path in "$WINDSURF_CFG" "$VSCODE_CFG" "$CURSOR_CFG" "$ZED_CFG" "$CLAUDE_CODE_CFG" "$OPENCODE_CFG"; do
+    echo "    $path"
+  done
   exit 1
 fi
 
@@ -35,6 +57,8 @@ echo "  Press Ctrl-C to stop."
 echo ""
 
 # Run initial sync on start
-"$SYNC_SCRIPT"
+"$SYNC_SCRIPT" || true
 
-fswatch -o "${WATCH_TARGETS[@]}" | xargs -n1 -I{} "$SYNC_SCRIPT"
+fswatch --event Updated "${WATCH_TARGETS[@]}" | while read -r changed_path; do
+  "$SYNC_SCRIPT" "$changed_path" || true
+done

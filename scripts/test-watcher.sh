@@ -59,6 +59,6 @@ echo ""
 # Run initial sync on start
 "$SYNC_SCRIPT" || true
 
-fswatch -o "${WATCH_TARGETS[@]}" | while read -r _; do
-  "$SYNC_SCRIPT" || true
+fswatch --event Updated "${WATCH_TARGETS[@]}" | while read -r changed_path; do
+  "$SYNC_SCRIPT" "$changed_path" || true
 done

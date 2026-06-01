@@ -93,6 +93,21 @@ fi
 # ── Detect which file changed and update canonical ────────────────────────────
 CHANGED_FILE="${1:-}"
 
+# Fallback: if no file argument was provided (e.g. fswatch -o mode), infer the
+# most recently modified IDE config so bidirectional sync still works.
+if [ -z "$CHANGED_FILE" ]; then
+  latest_mtime=0
+  for candidate in "$WINDSURF_CFG" "$VSCODE_CFG" "$CURSOR_CFG" "$ZED_CFG" "$CLAUDE_CODE_CFG" "$OPENCODE_CFG"; do
+    if [ -f "$candidate" ]; then
+      mtime=$(stat -f %m "$candidate" 2>/dev/null || echo 0)
+      if [ "$mtime" -gt "$latest_mtime" ]; then
+        latest_mtime=$mtime
+        CHANGED_FILE="$candidate"
+      fi
+    fi
+  done
+fi
+
 update_canonical_from() {
   local src_file="$1"
   local src_label="$2"

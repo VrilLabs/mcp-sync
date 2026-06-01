@@ -9,7 +9,7 @@
   <array>
     <string>/bin/sh</string>
     <string>-c</string>
-    <string>/opt/homebrew/bin/fswatch -o "$HOME/.codeium/windsurf/mcp_config.json" "$HOME/Library/Application Support/Code/User/mcp.json" "$HOME/.cursor/mcp.json" "$HOME/.config/zed/settings.json" "$HOME/.claude.json" "$HOME/.config/opencode/opencode.json" 2>/dev/null | while read f; do $HOME/.config/mcp-sync/scripts/sync-mcp.sh; done</string>
+    <string>/opt/homebrew/bin/fswatch --event Updated "$HOME/.codeium/windsurf/mcp_config.json" "$HOME/Library/Application Support/Code/User/mcp.json" "$HOME/.cursor/mcp.json" "$HOME/.config/zed/settings.json" "$HOME/.claude.json" "$HOME/.config/opencode/opencode.json" 2>/dev/null | while read f; do $HOME/.config/mcp-sync/scripts/sync-mcp.sh "$f"; done</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -23,8 +23,6 @@
   <dict>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-    <key>HOME</key>
-    <string>/Users/REPLACE_ME</string>
   </dict>
 </dict>
 </plist>

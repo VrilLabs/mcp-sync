@@ -115,7 +115,7 @@ cat > "$PLIST_PATH" << PLIST
   <array>
     <string>/bin/sh</string>
     <string>-c</string>
-    <string>${FSWATCH_BIN} -o "${WINDSURF_CFG}" "${VSCODE_CFG}" "${CURSOR_CFG}" "${ZED_CFG}" "${CLAUDE_CODE_CFG}" "${OPENCODE_CFG}" 2>/dev/null | while read f; do ${SYNC_SCRIPT}; done</string>
+    <string>${FSWATCH_BIN} --event Updated "${WINDSURF_CFG}" "${VSCODE_CFG}" "${CURSOR_CFG}" "${ZED_CFG}" "${CLAUDE_CODE_CFG}" "${OPENCODE_CFG}" 2>/dev/null | while read f; do ${SYNC_SCRIPT} "\$f"; done</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -129,8 +129,6 @@ cat > "$PLIST_PATH" << PLIST
   <dict>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-    <key>HOME</key>
-    <string>${HOME}</string>
   </dict>
 </dict>
 </plist>
